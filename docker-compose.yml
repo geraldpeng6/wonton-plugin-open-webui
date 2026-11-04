@@ -65,8 +65,8 @@ services:
       OPENID_PROVIDER_URL: ${WONTON_OIDC_ISSUER}/.well-known/openid-configuration
       OPENID_REDIRECT_URI: ${WONTON_APP_URL}/oauth/oidc/callback
       OAUTH_SCOPES: "openid profile email"
-      # 账号的显示名就是 OIDC 的用户名，登录时跟着更新。
-      OAUTH_USERNAME_CLAIM: preferred_username
+      # 账号的显示名和邮箱都以核心的声明为准，登录时跟着更新：name 是用户自己填的名字，preferred_username 是不变的用户名。
+      OAUTH_USERNAME_CLAIM: name
       OAUTH_UPDATE_NAME_ON_LOGIN: "true"
       OAUTH_UPDATE_EMAIL_ON_LOGIN: "true"
       CORS_ALLOW_ORIGIN: ${WONTON_APP_URL}
@@ -167,7 +167,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: com.openwebui.open-webui
-  version: 0.1.0
+  version: 0.1.1
   kind: app
   title: { zh: Open WebUI, en: Open WebUI }
   description:
@@ -206,8 +206,8 @@ x-wonton:
       The license is a modified BSD-3 with a branding clause: below fifty end users in any rolling
       thirty days, and Open WebUI may be renamed or de-logoed. Both are kept as they are here.
   release_notes:
-    zh: 首版；重建时刷新核心注入配置，网页服务使用只读根文件系统；容器健康检查验证模型网关当前连接和鉴权。
-    en: First release; refreshes core-injected settings on recreation, runs with a read-only root filesystem, and checks the effective model gateway connection and authentication.
+    zh: 账号显示你自己填的名字，不再显示用户名。
+    en: Your account shows the name you filled in instead of the username.
   webui:
     service: webui
     port: 8080

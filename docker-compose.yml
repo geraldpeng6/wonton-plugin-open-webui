@@ -1,11 +1,11 @@
 # Open WebUI：网关上打开的聊天与文档问答网页。
 
 services:
-  # 重建时清除核心管理的持久化设置，并预建 OIDC 主人账号（见 init/owner.py）。
+  # 重建时清除核心管理的持久化设置，并预建 OIDC 用户账号（见 init/owner.py）。
   init:
     image: &image ghcr.io/open-webui/open-webui:v0.12.5@sha256:03443b8de6b617da9d900edd09b4bf1cb0ddbfdcba6afb42c548336a0b821ded
     entrypoint: ["python", "/app/backend/owner.py"]
-    # 和数据目录的属主一致，数据库就归主人，不归 root。
+    # 和数据目录的属主一致，数据库就归用户，不归 root。
     user: "${PUID}:${PGID}"
     environment:
       TZ: ${TZ}
@@ -167,47 +167,34 @@ configs:
 x-wonton:
   spec: "0.4"
   id: com.openwebui.open-webui
-  version: 0.1.1
+  version: 0.1.2
   kind: app
-  title: { zh: Open WebUI, en: Open WebUI }
+  title: { en: Open WebUI }
   description:
-    zh: 在自己的浏览器里和模型聊天，上传文档做问答
-    en: Chat with the models and ask questions about uploaded documents in your own browser
+    zh: 在浏览器里和 AI 聊天，还能上传文档来问答
+    en: Chat with AI in your browser and ask questions about your documents
   icon: icon.png
   notices: [NOTICE]
-  category: ai
   screenshots: [screenshots/chat.png, screenshots/knowledge.png]
   author: { name: geraldpeng6 }
   homepage: https://openwebui.com
   # 改版 BSD-3 加品牌条款，没有登记 SPDX 标识。
   license: LicenseRef-Open-WebUI
-  tags: [open-webui, 聊天, 文档, rag, openai]
+  tags:
+    zh: [AI]
+    en: [AI]
   about:
     zh: |
-      Open WebUI 是一个聊天网页：左边选模型，右边对话，历史都在自己的服务器上。上传 PDF、Word、文本
-      放进知识库，提问时答案带着出处。
+      在浏览器里和 AI 聊天，历史留在自己的服务器上。上传 PDF、Word 或文本，针对文档提问，回答带着出处。
 
-      模型经云吞的模型网关使用，密钥由核心注入；登录走核心的身份提供方，不用另起一套账号，也没有
-      第二个登录页。文档向量由镜像内置的模型在本地计算，不下载模型、不调用外部 embedding 服务；
-      问答所需的文档片段随问题经模型网关发给选中的模型。
-
-      许可证是改版 BSD-3 加品牌条款：滚动 30 天内不超过 50 个终端用户时允许改动 Open WebUI 的
-      名称和 logo，这里两者都原样保留。
+      模型由云吞提供，不用自己填 key。文档的向量用镜像里自带的模型在本地算，不下载模型，也不调用外部服务。
     en: |
-      Open WebUI is a chat page: pick a model on the left, talk on the right, and the history stays on
-      your own server. Upload PDFs, Word files and text into a knowledge base and answers come back
-      with citations.
+      Chat with AI in your browser, with the history on your own server. Upload PDFs, Word files or text, ask about them, and get answers with sources.
 
-      Models go through Wonton's model gateway with a key the core injects; sign-in goes through the
-      core's identity provider, so there is no second account system and no second login page.
-      Documents are embedded locally with the model built into the image, without downloads or an
-      external embedding API. Relevant passages accompany questions through the model gateway.
-
-      The license is a modified BSD-3 with a branding clause: below fifty end users in any rolling
-      thirty days, and Open WebUI may be renamed or de-logoed. Both are kept as they are here.
+      The models come from Wonton, so there is no key to fill in. Documents are embedded locally with the model built into the image: no model downloads and no external service.
   release_notes:
-    zh: 账号显示你自己填的名字，不再显示用户名。
-    en: Your account shows the name you filled in instead of the username.
+    zh: 名字和说明更新；账号显示你自己填的名字，不再显示用户名。
+    en: Product name and description update; your account shows the name you filled in instead of the username.
   webui:
     service: webui
     port: 8080
@@ -219,6 +206,7 @@ x-wonton:
     - owner.identity
   secrets:
     webui_secret_key: { generate: { bytes: 32 } }
+  # 上游没写最低内存（官方只给了 slim 镜像的空闲测量，并明说不是最低要求）；本机实测约 335M，取 512M。镜像支持 amd64 和 arm64（docker manifest inspect）。
   requirements:
     arch: [amd64, arm64]
-    memory: 2G
+    memory: 512M

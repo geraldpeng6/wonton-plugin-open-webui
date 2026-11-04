@@ -1,0 +1,224 @@
+# Open WebUI：网关上打开的聊天与文档问答网页。
+
+services:
+  # 重建时清除核心管理的持久化设置，并预建 OIDC 主人账号（见 init/owner.py）。
+  init:
+    image: &image ghcr.io/open-webui/open-webui:v0.12.5@sha256:03443b8de6b617da9d900edd09b4bf1cb0ddbfdcba6afb42c548336a0b821ded
+    entrypoint: ["python", "/app/backend/owner.py"]
+    # 和数据目录的属主一致，数据库就归主人，不归 root。
+    user: "${PUID}:${PGID}"
+    environment:
+      TZ: ${TZ}
+      DATA_DIR: /data
+      HOME: /data/home
+      STATIC_DIR: /tmp/open-webui-static
+      CORS_ALLOW_ORIGIN: ${WONTON_APP_URL}
+      WEBUI_SECRET_KEY: ${WONTON_SECRET_WEBUI_SECRET_KEY}
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME}
+      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL}
+      OFFLINE_MODE: "true"
+    volumes:
+      - ${WONTON_APP_DATA}:/data
+    configs:
+      - source: owner
+        target: /app/backend/owner.py
+    # 只操作本地数据库；configs 由核心写入根文件系统，init 不能设 read_only。
+    network_mode: none
+    restart: "no"
+    tmpfs: [/tmp]
+
+  webui:
+    image: *image
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    user: "${PUID}:${PGID}"
+    # 根文件系统只读，只把 /tmp 给可写的一次性空间；写的数据都在 /data。
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      TZ: ${TZ}
+      # 数据库、上传的文档和应用自己的缓存都在数据目录，不碰镜像里的内置模型缓存。
+      DATA_DIR: /data
+      HOME: /data/home
+      # 0.12.5 启动时复制静态资源，不能写回只读的镜像目录。
+      STATIC_DIR: /tmp/open-webui-static
+      WEBUI_URL: ${WONTON_APP_URL}
+      WEBUI_SECRET_KEY: ${WONTON_SECRET_WEBUI_SECRET_KEY}
+      # 这三项和 WEBUI_URL 在重建时以注入值为准，init 只清除它们的数据库覆盖值。
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URLS: ${WONTON_MODEL_BASE_URL}
+      OPENAI_API_KEYS: ${WONTON_MODEL_API_KEY}
+      DEFAULT_MODELS: ${WONTON_MODEL_DEFAULT}
+      ENABLE_OLLAMA_API: "false"
+      # 登录只认核心的身份提供方：关掉注册、密码登录和第二个登录页。
+      ENABLE_SIGNUP: "false"
+      ENABLE_LOGIN_FORM: "false"
+      ENABLE_PASSWORD_AUTH: "false"
+      ENABLE_OAUTH: "true"
+      ENABLE_OAUTH_SIGNUP: "false"
+      ENABLE_OAUTH_PERSISTENT_CONFIG: "false"
+      OAUTH_AUTO_REDIRECT: "true"
+      OAUTH_PROVIDER_NAME: Wonton
+      OAUTH_CLIENT_ID: ${WONTON_OIDC_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${WONTON_OIDC_CLIENT_SECRET}
+      OPENID_PROVIDER_URL: ${WONTON_OIDC_ISSUER}/.well-known/openid-configuration
+      OPENID_REDIRECT_URI: ${WONTON_APP_URL}/oauth/oidc/callback
+      OAUTH_SCOPES: "openid profile email"
+      # 账号的显示名就是 OIDC 的用户名，登录时跟着更新。
+      OAUTH_USERNAME_CLAIM: preferred_username
+      OAUTH_UPDATE_NAME_ON_LOGIN: "true"
+      OAUTH_UPDATE_EMAIL_ON_LOGIN: "true"
+      CORS_ALLOW_ORIGIN: ${WONTON_APP_URL}
+      DEFAULT_LOCALE: zh-CN
+      ANONYMIZED_TELEMETRY: "false"
+      # 内置的 embedding、whisper 和 tiktoken 模型都在镜像里，离线也能用；同时关掉版本检查。
+      OFFLINE_MODE: "true"
+    volumes:
+      - ${WONTON_APP_DATA}:/data
+    healthcheck:
+      # /ready 不探模型网关，聚合列表还会吞错；从只读数据库读取运行中的连接，再直接验证依赖。
+      # 内联代码避免给只读服务加 configs；不导入应用模块，避免触发迁移或静态文件写入。
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json, os, signal, socket, sqlite3, sys
+          from pathlib import Path
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlsplit
+          from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+
+          def fail(kind, message):
+              sys.exit(f'{kind}: {message}')
+
+          signal.signal(signal.SIGALRM, lambda *_: fail('transport_unavailable', '健康检查超过 8 秒'))
+          signal.alarm(8)
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          http = build_opener(ProxyHandler({}), NoRedirect())
+
+          def fetch(url, label, headers=None):
+              try:
+                  with http.open(Request(url, headers=headers or {}), timeout=3) as response:
+                      if response.status != 200:
+                          fail('upstream_error', f'{label} HTTP {response.status}')
+                      return json.load(response)
+              except HTTPError as error:
+                  kind = 'authentication_error' if error.code == 401 else 'permission_denied' if error.code == 403 else 'upstream_error'
+                  fail(kind, f'{label} HTTP {error.code}')
+              except (URLError, TimeoutError, socket.timeout, OSError):
+                  fail('transport_unavailable', f'{label} 无法连接、解析失败或超时')
+              except (ValueError, UnicodeError):
+                  fail('upstream_error', f'{label} 没有返回有效 JSON')
+
+          ready = fetch('http://127.0.0.1:8080/ready', 'Open WebUI')
+          if not isinstance(ready, dict) or ready.get('status') is not True:
+              fail('not_ready', 'Open WebUI 尚未就绪')
+          try:
+              db_path = Path(os.environ['DATA_DIR']) / 'webui.db'
+              with sqlite3.connect(db_path.as_uri() + '?mode=ro', uri=True, timeout=2) as db:
+                  stored = dict(db.execute("select key,value from config where key like 'openai.%'"))
+
+              def setting(key, default):
+                  return json.loads(stored[key]) if key in stored else default
+
+              enabled = setting('openai.enable', True)
+              urls = setting('openai.api_base_urls', os.environ['OPENAI_API_BASE_URLS'].split(';'))
+              keys = setting('openai.api_keys', os.environ['OPENAI_API_KEYS'].split(';'))
+              configs = setting('openai.api_configs', {})
+              if enabled is not True or not urls:
+                  fail('configuration_error', '模型网关连接已关闭或未配置')
+              if not isinstance(urls, list) or not isinstance(keys, list) or not isinstance(configs, dict):
+                  fail('configuration_error', '模型连接设置格式错误')
+              for index, url in enumerate(urls):
+                  label = f'模型连接 {index}'
+                  parsed = urlsplit(url)
+                  if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+                      fail('configuration_error', f'{label} 地址无效')
+                  config = configs.get(str(index), configs.get(url, {}))
+                  if config.get('enable', True) is not True:
+                      fail('configuration_error', f'{label} 已关闭')
+                  if config.get('auth_type') not in (None, 'bearer', 'none') or config.get('forward_cookies') or config.get('azure'):
+                      fail('configuration_error', f'{label} 不是模型网关的 Bearer 连接')
+                  key = keys[index] if index < len(keys) else ''
+                  headers = {'Authorization': f'Bearer {key.strip()}'} if key and config.get('auth_type') != 'none' else {}
+                  headers.update(config.get('headers') or {})
+                  models = fetch(url.rstrip('/') + '/models', label, headers)
+                  if not isinstance(models, dict) or 'error' in models or not isinstance(models.get('data'), list):
+                      fail('upstream_error', f'{label} 不是有效的模型列表')
+                  print(f'{label}: 鉴权和连接正常，模型数 {len(models["data"])}')
+          except (sqlite3.Error, ValueError, KeyError, TypeError, AttributeError):
+              fail('configuration_error', '无法读取模型网关的有效连接设置')
+      interval: 30s
+      timeout: 10s
+      retries: 2
+      start_period: 120s
+      start_interval: 2s
+
+configs:
+  owner:
+    file: init/owner.py
+
+x-wonton:
+  spec: "0.4"
+  id: com.openwebui.open-webui
+  version: 0.1.0
+  kind: app
+  title: { zh: Open WebUI, en: Open WebUI }
+  description:
+    zh: 在自己的浏览器里和模型聊天，上传文档做问答
+    en: Chat with the models and ask questions about uploaded documents in your own browser
+  icon: icon.png
+  notices: [NOTICE]
+  category: ai
+  screenshots: [screenshots/chat.png, screenshots/knowledge.png]
+  author: { name: geraldpeng6 }
+  homepage: https://openwebui.com
+  # 改版 BSD-3 加品牌条款，没有登记 SPDX 标识。
+  license: LicenseRef-Open-WebUI
+  tags: [open-webui, 聊天, 文档, rag, openai]
+  about:
+    zh: |
+      Open WebUI 是一个聊天网页：左边选模型，右边对话，历史都在自己的服务器上。上传 PDF、Word、文本
+      放进知识库，提问时答案带着出处。
+
+      模型经云吞的模型网关使用，密钥由核心注入；登录走核心的身份提供方，不用另起一套账号，也没有
+      第二个登录页。文档向量由镜像内置的模型在本地计算，不下载模型、不调用外部 embedding 服务；
+      问答所需的文档片段随问题经模型网关发给选中的模型。
+
+      许可证是改版 BSD-3 加品牌条款：滚动 30 天内不超过 50 个终端用户时允许改动 Open WebUI 的
+      名称和 logo，这里两者都原样保留。
+    en: |
+      Open WebUI is a chat page: pick a model on the left, talk on the right, and the history stays on
+      your own server. Upload PDFs, Word files and text into a knowledge base and answers come back
+      with citations.
+
+      Models go through Wonton's model gateway with a key the core injects; sign-in goes through the
+      core's identity provider, so there is no second account system and no second login page.
+      Documents are embedded locally with the model built into the image, without downloads or an
+      external embedding API. Relevant passages accompany questions through the model gateway.
+
+      The license is a modified BSD-3 with a branding clause: below fifty end users in any rolling
+      thirty days, and Open WebUI may be renamed or de-logoed. Both are kept as they are here.
+  release_notes:
+    zh: 首版；重建时刷新核心注入配置，网页服务使用只读根文件系统；容器健康检查验证模型网关当前连接和鉴权。
+    en: First release; refreshes core-injected settings on recreation, runs with a read-only root filesystem, and checks the effective model gateway connection and authentication.
+  webui:
+    service: webui
+    port: 8080
+    sso: oidc
+    oidc:
+      redirect_paths: [/oauth/oidc/callback]
+  permissions:
+    - models
+    - owner.identity
+  secrets:
+    webui_secret_key: { generate: { bytes: 32 } }
+  requirements:
+    arch: [amd64, arm64]
+    memory: 2G

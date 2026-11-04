@@ -1,6 +1,6 @@
 """预建 OIDC 用户账号，并让核心注入的设置在保留数据重装后生效。
 
-Open WebUI 0.12.5 启动时将默认设置写进 config 表，此后数据库里的值优先于环境变量。
+Open WebUI 0.13.0 启动时将默认设置写进 config 表，此后数据库里的值优先于环境变量。
 只清除核心管理的四项；其余设置保留，避免全局关闭持久化丢失用户的配置。
 用户按不变的 OIDC sub 识别，不按邮箱合并账号。
 """
@@ -21,7 +21,7 @@ os.makedirs(os.path.join(data, "home"), exist_ok=True)
 os.chdir("/app/backend")
 sys.path.insert(0, "/app/backend")
 
-# Open WebUI 0.12.5 的 config 模块导入时执行迁移，与应用使用同一入口，不再显式调用一次。
+# Open WebUI 0.13.0 的 config 模块导入时执行迁移，与应用使用同一入口，不再显式调用一次。
 import open_webui.config  # noqa: E402, F401
 
 db = sqlite3.connect(os.path.join(data, "webui.db"), timeout=30)

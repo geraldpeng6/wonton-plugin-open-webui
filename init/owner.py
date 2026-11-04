@@ -1,8 +1,8 @@
-"""预建 OIDC 主人账号，并让核心注入的设置在保留数据重装后生效。
+"""预建 OIDC 用户账号，并让核心注入的设置在保留数据重装后生效。
 
 Open WebUI 0.12.5 启动时将默认设置写进 config 表，此后数据库里的值优先于环境变量。
-只清除核心管理的四项；其余设置保留，避免全局关闭持久化丢失主人的配置。
-主人按不变的 OIDC sub 识别，不按邮箱合并账号。
+只清除核心管理的四项；其余设置保留，避免全局关闭持久化丢失用户的配置。
+用户按不变的 OIDC sub 识别，不按邮箱合并账号。
 """
 
 import asyncio
@@ -42,7 +42,7 @@ exists = db.execute(
     "select 1 from user where json_extract(oauth, '$.oidc.sub') = ?", (name,)
 ).fetchone()
 if exists:
-    print(f"主人账号已存在：{name}")
+    print(f"用户账号已存在：{name}")
     db.commit()
     sys.exit(0)
 
@@ -62,6 +62,6 @@ try:
         (user_id, email, asyncio.run(get_password_hash(str(uuid.uuid4()))), str(uuid.uuid4())),
     )
 except sqlite3.IntegrityError:
-    sys.exit(f"邮箱 {email} 已经被别的账号占着，建不了主人账号")
+    sys.exit(f"邮箱 {email} 已经被别的账号占着，建不了用户账号")
 db.commit()
-print(f"建好了主人账号：{name} <{email}>")
+print(f"建好了用户账号：{name} <{email}>")

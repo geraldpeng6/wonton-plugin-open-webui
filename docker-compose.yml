@@ -167,7 +167,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: com.openwebui.open-webui
-  version: 0.1.3
+  version: 0.1.4
   kind: app
   title: { en: Open WebUI }
   description:
@@ -193,14 +193,15 @@ x-wonton:
 
       The models come from Wonton, so there is no key to fill in. Documents are embedded locally with the model built into the image: no model downloads and no external service.
   release_notes:
-    zh: 应用升级到 Open WebUI 0.13.0。
-    en: Upgrade to Open WebUI 0.13.0.
+    zh: 退出登录后回到应用登录页。
+    en: Return to the application login page after signing out.
   webui:
     service: webui
     port: 8080
     sso: oidc
     oidc:
       redirect_paths: [/oauth/oidc/callback]
+      post_logout_paths: [/auth]
   permissions:
     - models
     - owner.identity

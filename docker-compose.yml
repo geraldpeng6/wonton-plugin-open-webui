@@ -78,6 +78,8 @@ services:
       - ${WONTON_APP_DATA}:/data
     healthcheck:
       # /ready 不探模型网关，聚合列表还会吞错；从只读数据库读取运行中的连接，再直接验证依赖。
+      # 模型网关可选：注入的网关地址为空时只看应用就绪，模型连接由用户自己在设置里配；
+      # 接上时只验证网关这一条（插件管理的），用户自己加的连接出错在应用里如实显示，不算插件不健康。
       # 内联代码避免给只读服务加 configs；不导入应用模块，避免触发迁移或静态文件写入。
       test:
         - CMD
@@ -119,6 +121,10 @@ services:
           ready = fetch('http://127.0.0.1:8080/ready', 'Open WebUI')
           if not isinstance(ready, dict) or ready.get('status') is not True:
               fail('not_ready', 'Open WebUI 尚未就绪')
+          gateway_url = os.environ['OPENAI_API_BASE_URLS'].strip()
+          if not gateway_url:
+              print('模型网关没接上：模型连接由用户在设置里自己配')
+              sys.exit(0)
           try:
               db_path = Path(os.environ['DATA_DIR']) / 'webui.db'
               with sqlite3.connect(db_path.as_uri() + '?mode=ro', uri=True, timeout=2) as db:
@@ -131,27 +137,33 @@ services:
               urls = setting('openai.api_base_urls', os.environ['OPENAI_API_BASE_URLS'].split(';'))
               keys = setting('openai.api_keys', os.environ['OPENAI_API_KEYS'].split(';'))
               configs = setting('openai.api_configs', {})
-              if enabled is not True or not urls:
-                  fail('configuration_error', '模型网关连接已关闭或未配置')
               if not isinstance(urls, list) or not isinstance(keys, list) or not isinstance(configs, dict):
                   fail('configuration_error', '模型连接设置格式错误')
-              for index, url in enumerate(urls):
-                  label = f'模型连接 {index}'
-                  parsed = urlsplit(url)
-                  if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
-                      fail('configuration_error', f'{label} 地址无效')
-                  config = configs.get(str(index), configs.get(url, {}))
-                  if config.get('enable', True) is not True:
-                      fail('configuration_error', f'{label} 已关闭')
-                  if config.get('auth_type') not in (None, 'bearer', 'none') or config.get('forward_cookies') or config.get('azure'):
-                      fail('configuration_error', f'{label} 不是模型网关的 Bearer 连接')
-                  key = keys[index] if index < len(keys) else ''
-                  headers = {'Authorization': f'Bearer {key.strip()}'} if key and config.get('auth_type') != 'none' else {}
-                  headers.update(config.get('headers') or {})
-                  models = fetch(url.rstrip('/') + '/models', label, headers)
-                  if not isinstance(models, dict) or 'error' in models or not isinstance(models.get('data'), list):
-                      fail('upstream_error', f'{label} 不是有效的模型列表')
-                  print(f'{label}: 鉴权和连接正常，模型数 {len(models["data"])}')
+              if enabled is not True:
+                  print('OpenAI 接口被用户关掉了：模型连接由用户管理，应用本身健康')
+                  sys.exit(0)
+              index = next(
+                  (i for i, url in enumerate(urls) if urlsplit(url).hostname == 'models.wonton.internal'),
+                  None,
+              )
+              if index is None:
+                  fail('configuration_error', '模型网关的连接不在设置里')
+              url = urls[index]
+              parsed = urlsplit(url)
+              if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+                  fail('configuration_error', '模型网关的地址无效')
+              config = configs.get(str(index), configs.get(url, {}))
+              if config.get('enable', True) is not True:
+                  fail('configuration_error', '模型网关的连接已关闭')
+              if config.get('auth_type') not in (None, 'bearer', 'none') or config.get('forward_cookies') or config.get('azure'):
+                  fail('configuration_error', '模型网关的连接不是 Bearer 连接')
+              key = keys[index] if index < len(keys) else ''
+              headers = {'Authorization': f'Bearer {key.strip()}'} if key and config.get('auth_type') != 'none' else {}
+              headers.update(config.get('headers') or {})
+              models = fetch(url.rstrip('/') + '/models', '模型网关', headers)
+              if not isinstance(models, dict) or 'error' in models or not isinstance(models.get('data'), list):
+                  fail('upstream_error', '模型网关不是有效的模型列表')
+              print(f'模型网关：鉴权和连接正常，模型数 {len(models["data"])}')
           except (sqlite3.Error, ValueError, KeyError, TypeError, AttributeError):
               fail('configuration_error', '无法读取模型网关的有效连接设置')
       interval: 30s
@@ -167,7 +179,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: com.openwebui.open-webui
-  version: 0.1.3
+  version: 0.2.0
   kind: app
   title: { en: Open WebUI }
   description:
@@ -187,14 +199,14 @@ x-wonton:
     zh: |
       在浏览器里和 AI 聊天，历史留在自己的服务器上。上传 PDF、Word 或文本，针对文档提问，回答带着出处。
 
-      模型由云吞提供，不用自己填 key。文档的向量用镜像里自带的模型在本地算，不下载模型，也不调用外部服务。
+      模型默认用云吞的模型网关，不用自己填 key；没接网关时管理员在设置里加自己的模型服务商和 key 也能用。文档的向量用镜像里自带的模型在本地算，不下载模型，也不调用外部服务。
     en: |
       Chat with AI in your browser, with the history on your own server. Upload PDFs, Word files or text, ask about them, and get answers with sources.
 
-      The models come from Wonton, so there is no key to fill in. Documents are embedded locally with the model built into the image: no model downloads and no external service.
+      The models come from Wonton's model gateway by default, so there is no key to fill in; without a gateway, add your own provider and key in the admin settings. Documents are embedded locally with the model built into the image: no model downloads and no external service.
   release_notes:
-    zh: 应用升级到 Open WebUI 0.13.0。
-    en: Upgrade to Open WebUI 0.13.0.
+    zh: 模型网关改成可选：没接上网关也能装和用，管理员在设置里加自己的模型服务商；网关装好后自动接上，自己在设置里加的连接重建后保留。
+    en: "The model gateway becomes optional: install and use without one by adding your own provider in the admin settings; it reconnects automatically once a gateway is installed, and connections you added yourself survive rebuilds."
   webui:
     service: webui
     port: 8080

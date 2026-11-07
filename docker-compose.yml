@@ -181,7 +181,7 @@ configs:
     file: init/owner.py
 
 x-wonton:
-  spec: "0.4"
+  spec: "0.7"
   id: com.openwebui.open-webui
   version: 0.2.1
   kind: app

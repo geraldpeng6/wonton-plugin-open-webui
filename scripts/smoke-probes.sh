@@ -42,7 +42,7 @@ app_login() (
 
 # 数据：对话是 Open WebUI 的用户数据，存在 /data 里，升级、重装都保留。
 # data_write 登录后建一条带随机标记的对话，标记写进 SMOKE_STATE；data_check 读回标记，在对话列表里找回它。
-# 只依赖模板约定的变量（SMOKE_STATE/SMOKE_JAR/SMOKE_WEB_URL）和助手 dweb、web_get。
+# 只依赖模板约定的变量（SMOKE_STATE/SMOKE_JAR/SMOKE_WEB_URL）和助手 dweb（应用接口用自带的 api_get/api_post）。
 # e2e 套件给的 SMOKE_STATE 是标记文件，套件自己的 smoke 和 dev.sh probes 给的是 .wonton 目录：
 # 是目录就把标记落成目录里的文件，两种都落得进。
 data_mark_file() {

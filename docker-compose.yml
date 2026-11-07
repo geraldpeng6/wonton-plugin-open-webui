@@ -14,6 +14,10 @@ services:
       STATIC_DIR: /tmp/open-webui-static
       CORS_ALLOW_ORIGIN: ${WONTON_APP_URL}
       WEBUI_SECRET_KEY: ${WONTON_SECRET_WEBUI_SECRET_KEY}
+      # owner.py 按这两项判断网关接没接上，保留数据重建时按本次注入把网关连接接回数据库；
+      # 没有它们就会把网关连接摘掉，重装后健康检查报网关不在设置里。
+      OPENAI_API_BASE_URLS: ${WONTON_MODEL_BASE_URL}
+      OPENAI_API_KEYS: ${WONTON_MODEL_API_KEY}
       WONTON_OWNER_NAME: ${WONTON_OWNER_NAME}
       WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL}
       OFFLINE_MODE: "true"
@@ -177,9 +181,9 @@ configs:
     file: init/owner.py
 
 x-wonton:
-  spec: "0.4"
+  spec: "0.7"
   id: com.openwebui.open-webui
-  version: 0.2.0
+  version: 0.2.1
   kind: app
   title: { en: Open WebUI }
   description:
@@ -205,14 +209,15 @@ x-wonton:
 
       The models come from Wonton's model gateway by default, so there is no key to fill in; without a gateway, add your own provider and key in the admin settings. Documents are embedded locally with the model built into the image: no model downloads and no external service.
   release_notes:
-    zh: 模型网关改成可选：没接上网关也能装和用，管理员在设置里加自己的模型服务商；网关装好后自动接上，自己在设置里加的连接重建后保留。
-    en: "The model gateway becomes optional: install and use without one by adding your own provider in the admin settings; it reconnects automatically once a gateway is installed, and connections you added yourself survive rebuilds."
+    zh: 退出登录后回到应用登录页。
+    en: Return to the application login page after signing out.
   webui:
     service: webui
     port: 8080
     sso: oidc
     oidc:
       redirect_paths: [/oauth/oidc/callback]
+      post_logout_paths: [/auth]
   permissions:
     - models
     - owner.identity

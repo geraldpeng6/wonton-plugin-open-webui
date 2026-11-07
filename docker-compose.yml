@@ -14,6 +14,10 @@ services:
       STATIC_DIR: /tmp/open-webui-static
       CORS_ALLOW_ORIGIN: ${WONTON_APP_URL}
       WEBUI_SECRET_KEY: ${WONTON_SECRET_WEBUI_SECRET_KEY}
+      # owner.py 按这两项判断网关接没接上，保留数据重建时按本次注入把网关连接接回数据库；
+      # 没有它们就会把网关连接摘掉，重装后健康检查报网关不在设置里。
+      OPENAI_API_BASE_URLS: ${WONTON_MODEL_BASE_URL}
+      OPENAI_API_KEYS: ${WONTON_MODEL_API_KEY}
       WONTON_OWNER_NAME: ${WONTON_OWNER_NAME}
       WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL}
       OFFLINE_MODE: "true"

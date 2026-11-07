@@ -34,10 +34,19 @@ identity_check() { # 走应用自己的 OIDC 登录端点，再调自己的“�
 
 # 登录分两层：核心会话由 dweb 写进 SMOKE_JAR（dev.sh web 每次重新走核心登录），应用自己的会话
 # 要再走 /oauth/oidc/login 换——应用根路径是前端 SPA，curl 跟不到它的登录跳转。
+# e2e 套件的 dweb 不带 --jar，默认写套件自己的 jar，核心会话进不了 SMOKE_JAR：
+# 用 WONTON_DEV_JAR 把它指过来（kit probes 的 dweb 带 --jar，这个变量只是兜底，两套件都生效）。
 app_login() (
   set -eu
-  dweb / >/dev/null
-  curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" "$(web_origin)/oauth/oidc/login"
+  local landing
+  WONTON_DEV_JAR="$SMOKE_JAR" dweb / >/dev/null
+  landing="$(curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" \
+    -w '%{url_effective}' "$(web_origin)/oauth/oidc/login")" || { echo "OIDC 登录链失败"; return 1; }
+  # 没走完会落在核心登录页（别的主机），落点不在应用 origin 下就说明会话没建立。
+  case "$landing" in
+    "$(web_origin)"*) : ;;
+    *) echo "OIDC 登录链没走完，落在 $landing"; return 1 ;;
+  esac
 )
 
 # 数据：对话是 Open WebUI 的用户数据，存在 /data 里，升级、重装都保留。

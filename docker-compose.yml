@@ -3,7 +3,7 @@
 services:
   # 重建时清除核心管理的持久化设置，并预建 OIDC 用户账号（见 init/owner.py）。
   init:
-    image: &image ghcr.io/open-webui/open-webui:v0.13.0@sha256:2272b0fb7c8783a016bcc179abb467cfa34590c99c5e6560fe0e9155b4820a09
+    image: ghcr.io/open-webui/open-webui:v0.13.2@sha256:4f1dd4d81ef1445d4e4bfb4a7a55838dfb1de38a834a0fbe7615d92990333a71
     entrypoint: ["python", "/app/backend/owner.py"]
     # 和数据目录的属主一致，数据库就归用户，不归 root。
     user: "${PUID}:${PGID}"
@@ -32,7 +32,7 @@ services:
     tmpfs: [/tmp]
 
   webui:
-    image: *image
+    image: ghcr.io/open-webui/open-webui:v0.13.2@sha256:4f1dd4d81ef1445d4e4bfb4a7a55838dfb1de38a834a0fbe7615d92990333a71
     depends_on:
       init:
         condition: service_completed_successfully
@@ -183,7 +183,7 @@ configs:
 x-wonton:
   spec: "0.7"
   id: com.openwebui.open-webui
-  version: 0.2.1
+  version: 0.2.2
   kind: app
   title: { en: Open WebUI }
   description:
@@ -209,8 +209,8 @@ x-wonton:
 
       The models come from Wonton's model gateway by default, so there is no key to fill in; without a gateway, add your own provider and key in the admin settings. Documents are embedded locally with the model built into the image: no model downloads and no external service.
   release_notes:
-    zh: 退出登录后回到应用登录页。
-    en: Return to the application login page after signing out.
+    zh: 升级到上游 Open WebUI 0.13.2。
+    en: Upgraded to upstream Open WebUI 0.13.2.
   webui:
     service: webui
     port: 8080

@@ -3,7 +3,7 @@
 services:
   # 重建时清除核心管理的持久化设置，并预建 OIDC 用户账号（见 init/owner.py）。
   init:
-    image: ghcr.io/open-webui/open-webui:v0.13.2@sha256:4f1dd4d81ef1445d4e4bfb4a7a55838dfb1de38a834a0fbe7615d92990333a71
+    image: ghcr.io/open-webui/open-webui:v0.13.3@sha256:46b59158e6558eeb980bc828e0f1b30238ad24d82ed84d5e5eda1dab2a082f14
     entrypoint: ["python", "/app/backend/owner.py"]
     # 和数据目录的属主一致，数据库就归用户，不归 root。
     user: "${PUID}:${PGID}"
@@ -32,7 +32,7 @@ services:
     tmpfs: [/tmp]
 
   webui:
-    image: ghcr.io/open-webui/open-webui:v0.13.2@sha256:4f1dd4d81ef1445d4e4bfb4a7a55838dfb1de38a834a0fbe7615d92990333a71
+    image: ghcr.io/open-webui/open-webui:v0.13.3@sha256:46b59158e6558eeb980bc828e0f1b30238ad24d82ed84d5e5eda1dab2a082f14
     depends_on:
       init:
         condition: service_completed_successfully

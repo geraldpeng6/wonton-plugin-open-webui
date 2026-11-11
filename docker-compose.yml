@@ -185,10 +185,10 @@ x-wonton:
   id: com.openwebui.open-webui
   version: 0.2.2
   kind: app
-  title: { en: Open WebUI }
+  title: { zh: AI 聊天（Open WebUI）, en: AI Chat (Open WebUI) }
   description:
-    zh: 在浏览器里和 AI 聊天，还能上传文档来问答
-    en: Chat with AI in your browser and ask questions about your documents
+    zh: 像自家的 ChatGPT 网页：在浏览器里和 AI 聊天，上传 PDF、Word 还能针对文件提问，聊天记录都存在家里。
+    en: "Like your own ChatGPT website: chat with AI in the browser, upload PDFs or Word files and ask about them, with your history kept at home."
   icon: icon.png
   notices: [NOTICE]
   screenshots: [screenshots/chat.png, screenshots/knowledge.png]

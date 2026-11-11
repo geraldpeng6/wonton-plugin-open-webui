@@ -1,6 +1,6 @@
 # 云吞插件：Open WebUI
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)。
 
 [Open WebUI](https://openwebui.com) 的云吞插件：在自己的浏览器里和模型聊天，上传文档做问答。模型经云吞的模型网关使用，
 登录走核心的身份提供方，文档向量用镜像里内置的模型算，容器不出网。

@@ -1,27 +1,21 @@
 # shellcheck shell=bash
 # Open WebUI：sso=oidc；清单没有 mcp。
-export SSO=oidc
-export MCP=0
 
 web_assert() { grep -qi 'open webui'; }   # 标准输入：应用真实页面
 
-# 核心插件列表给的网页地址带入口路径和尾斜杠，直接拼 /路径 会得到 //api/... 落进应用前端的
-# 兜底路由（GET 回页面、POST 405）。一律先截成 origin 再拼；e2e 套件和 dev.sh 的 plugin_web_url
-# 对钩子给的也是 origin。
-web_origin() { sed -E 's#^(https?://[^/]+).*#\1#' <<<"${SMOKE_WEB_URL:-}"; }
-
-# 带用户会话的应用接口请求：SMOKE_JAR 里是网关会话 + 应用会话，发到应用自己的 origin。
+# 带用户会话的应用接口请求：SMOKE_JAR 里是网关会话 + 应用会话，发到应用自己的 origin（SMOKE_WEB_ORIGIN）。
+# 拼路径不用 SMOKE_WEB_URL：它可能带入口路径，直接拼 /api/... 会落进应用前端的兜底路由（GET 回页面、POST 405）。
 api_get() (
   set -eu
   local path="$1"; shift
-  curl -sS --noproxy '*' --fail-with-body --max-time 120 -b "${SMOKE_JAR:-}" "$@" "$(web_origin)$path"
+  curl -sS --noproxy '*' --fail-with-body --max-time 120 -b "${SMOKE_JAR:-}" "$@" "$SMOKE_WEB_ORIGIN$path"
 )
 
 api_post() (
   set -eu
   local path="$1" body="$2"
   curl -sS --noproxy '*' --fail-with-body --max-time 120 -b "${SMOKE_JAR:-}" \
-    -H 'Content-Type: application/json' -d "$body" "$(web_origin)$path"
+    -H 'Content-Type: application/json' -d "$body" "$SMOKE_WEB_ORIGIN$path"
 )
 
 identity_check() { # 走应用自己的 OIDC 登录端点，再调自己的“当前用户”接口：用户且是管理员
@@ -34,51 +28,37 @@ identity_check() { # 走应用自己的 OIDC 登录端点，再调自己的“�
 
 # 登录分两层：核心会话由 dweb 写进 SMOKE_JAR（dev.sh web 每次重新走核心登录），应用自己的会话
 # 要再走 /oauth/oidc/login 换——应用根路径是前端 SPA，curl 跟不到它的登录跳转。
-# e2e 套件的 dweb 不带 --jar，默认写套件自己的 jar，核心会话进不了 SMOKE_JAR：
-# 用 WONTON_DEV_JAR 把它指过来（kit probes 的 dweb 带 --jar，这个变量只是兜底，两套件都生效）。
 app_login() (
   set -eu
   local landing
-  WONTON_DEV_JAR="$SMOKE_JAR" dweb / >/dev/null
+  dweb / >/dev/null
   landing="$(curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" \
-    -w '%{url_effective}' "$(web_origin)/oauth/oidc/login")" || { echo "OIDC 登录链失败"; return 1; }
+    -w '%{url_effective}' "$SMOKE_WEB_ORIGIN/oauth/oidc/login")" || { echo "OIDC 登录链失败"; return 1; }
   # 没走完会落在核心登录页（别的主机），落点不在应用 origin 下就说明会话没建立。
   case "$landing" in
-    "$(web_origin)"*) : ;;
+    "$SMOKE_WEB_ORIGIN"*) : ;;
     *) echo "OIDC 登录链没走完，落在 $landing"; return 1 ;;
   esac
 )
 
 # 数据：对话是 Open WebUI 的用户数据，存在 /data 里，升级、重装都保留。
 # data_write 登录后建一条带随机标记的对话，标记写进 SMOKE_STATE；data_check 读回标记，在对话列表里找回它。
-# 只依赖模板约定的变量（SMOKE_STATE/SMOKE_JAR/SMOKE_WEB_URL）和助手 dweb（应用接口用自带的 api_get/api_post）。
-# e2e 套件给的 SMOKE_STATE 是标记文件，套件自己的 smoke 和 dev.sh probes 给的是 .wonton 目录：
-# 是目录就把标记落成目录里的文件，两种都落得进。
-data_mark_file() {
-  if [[ -d "${SMOKE_STATE:-}" ]]; then printf '%s\n' "$SMOKE_STATE/smoke-chat-mark"; else printf '%s\n' "$SMOKE_STATE"; fi
-}
-
 data_write() (
   set -eu
-  local mark out mf
-  [[ -n "${SMOKE_STATE:-}" && -n "${SMOKE_JAR:-}" && -n "${SMOKE_WEB_URL:-}" ]] ||
-    { echo "缺 SMOKE_STATE/SMOKE_JAR/SMOKE_WEB_URL"; return 1; }
+  local mark out
   app_login || { echo "登录链失败"; return 1; }
   mark="$(date +%Y%m%d%H%M%S)-$RANDOM"
   out="$(api_post /api/v1/chats/new "{\"chat\":{\"title\":\"wonton-smoke-$mark\",\"messages\":[]}}")" ||
     { echo "建对话失败：$out"; return 1; }
   jq -e '.id' <<<"$out" >/dev/null || { echo "chats/new 返回没有 id：$out"; return 1; }
-  mf="$(data_mark_file)"
-  printf '%s' "$mark" >"$mf"
+  printf '%s' "$mark" >"$SMOKE_STATE"
   echo "已建对话 wonton-smoke-$mark"
 )
 
 data_check() (
   set -eu
-  local mark out mf
-  [[ -n "${SMOKE_STATE:-}" ]] || { echo "缺 SMOKE_STATE"; return 1; }
-  mf="$(data_mark_file)"
-  mark="$(cat "$mf" 2>/dev/null)" || mark=""
+  local mark out
+  mark="$(cat "$SMOKE_STATE" 2>/dev/null)" || mark=""
   [[ -n "$mark" ]] || { echo "没有 data_write 写下的标记"; return 1; }
   app_login || { echo "登录链失败"; return 1; }
   out="$(api_get /api/v1/chats/)" || { echo "读对话列表失败：$out"; return 1; }
